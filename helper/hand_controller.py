@@ -3,13 +3,15 @@ import json
 import time
 import socket
 import numpy as np
+from pathlib import Path
 from ultralytics import YOLO
 
 UDP_IP = "127.0.0.1"
 UDP_PORT = 5005
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-model = YOLO("model/best.onnx", task="detect")
+MODEL_PATH = Path(__file__).resolve().parents[1] / "model" / "best.onnx"
+model = YOLO(str(MODEL_PATH), task="detect")
 
 # --- Control & Safety Parameters ---
 DEAD_ZONE = 0.15
@@ -46,12 +48,17 @@ while cap.isOpened():
     raw_vx, raw_vy, raw_vz = 0.0, 0.0, 0.0
     gesture = "NONE"
     status_text = "READY"
+    hand_detected = False
 
-    if len(results.boxes) > 0:
+    result = results[0] if results else None
+    boxes = result.boxes if result is not None else None
+    if boxes is not None and len(boxes) > 0:
+        box = boxes[0]
+        class_id = int(box.cls[0].item())
+        x1, y1, x2, y2 = map(float, box.xyxy[0].cpu().numpy())
         last_seen_time = time.time()
-        box = results.boxes
-        gesture = model.names[int(box.cls)]
-        x1, y1, x2, y2 = box.xyxy.cpu().numpy()
+        hand_detected = True
+        gesture = model.names[class_id]
 
         cx = ((x1 + x2) / 2.0) / w
         cy = ((y1 + y2) / 2.0) / h
@@ -86,6 +93,7 @@ while cap.isOpened():
         gesture_streak = 0
         if time.time() - last_seen_time > FAILSAFE_TIMEOUT and flight_mode == "FLYING":
             status_text = "AUTO-HOVER (HAND LOST)"
+            smooth_vx = smooth_vy = smooth_vz = 0.0
 
     smooth_vx = ALPHA * raw_vx + (1 - ALPHA) * smooth_vx
     smooth_vy = ALPHA * raw_vy + (1 - ALPHA) * smooth_vy
@@ -114,8 +122,11 @@ while cap.isOpened():
     if key == ord("q"):
         break
     elif key == ord("c"):
-        neutral_area = current_box_area
-        print(f"Calibrated neutral hand area to: {neutral_area:.4f}")
+        if hand_detected:
+            neutral_area = current_box_area
+            print(f"Calibrated neutral hand area to: {neutral_area:.4f}")
+        else:
+            print("Cannot calibrate: no hand detected.")
 
 cap.release()
 cv2.destroyAllWindows()

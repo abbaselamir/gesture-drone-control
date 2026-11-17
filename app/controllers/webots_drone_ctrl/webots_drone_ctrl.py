@@ -63,7 +63,7 @@ while robot.step(timestep) != -1:
     clamped_diff_alt = max(-1.0, min(1.0, target_altitude - altitude + 0.04))
     vertical_input = K_VERTICAL_P * math.pow(clamped_diff_alt, 3.0)
 
-    motors.setVelocity(K_VERTICAL_THRUST + vertical_input - roll_input + pitch_input)
-    motors.setVelocity(-(K_VERTICAL_THRUST + vertical_input + roll_input + pitch_input))
-    motors.setVelocity(-(K_VERTICAL_THRUST + vertical_input - roll_input - pitch_input))
-    motors.setVelocity(K_VERTICAL_THRUST + vertical_input + roll_input - pitch_input)
+    motors[0].setVelocity(K_VERTICAL_THRUST + vertical_input - roll_input + pitch_input)
+    motors[1].setVelocity(-(K_VERTICAL_THRUST + vertical_input + roll_input + pitch_input))
+    motors[2].setVelocity(-(K_VERTICAL_THRUST + vertical_input - roll_input - pitch_input))
+    motors[3].setVelocity(K_VERTICAL_THRUST + vertical_input + roll_input - pitch_input)
