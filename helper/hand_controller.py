@@ -14,9 +14,11 @@ MODEL_PATH = Path(__file__).resolve().parents[1] / "model" / "best.onnx"
 model = YOLO(str(MODEL_PATH), task="detect")
 
 # --- Control & Safety Parameters ---
-DEAD_ZONE = 0.15
-ALPHA = 0.25
-MAX_SPEED = 1.5
+DEAD_ZONE = 0.10
+ALPHA = 0.35
+MAX_SPEED = 1.8
+AREA_SENSITIVITY = 10.0
+VERTICAL_SPEED = 1.2
 neutral_area = 0.08
 DEBOUNCE_FRAMES = 10      # Hold gesture ~0.35s to switch flight mode
 FAILSAFE_TIMEOUT = 1.5    # Auto-hover if hand disappears for 1.5s
@@ -25,6 +27,7 @@ smooth_vx, smooth_vy, smooth_vz = 0.0, 0.0, 0.0
 flight_mode = "LANDED"
 gesture_streak = 0
 last_candidate = ""
+stop_latched = False
 last_seen_time = time.time()
 current_box_area = neutral_area
 
@@ -63,10 +66,9 @@ while cap.isOpened():
         cx = ((x1 + x2) / 2.0) / w
         cy = ((y1 + y2) / 2.0) / h
         norm_x = (cx - 0.5) * 2.0
-        norm_y = (0.5 - cy) * 2.0
 
         current_box_area = ((x2 - x1) * (y2 - y1)) / (w * h)
-        norm_z = np.clip((current_box_area - neutral_area) * 8.0, -1.0, 1.0)
+        norm_z = np.clip((current_box_area - neutral_area) * AREA_SENSITIVITY, -1.0, 1.0)
 
         # Debounced Gesture State Machine
         g = gesture.lower()
@@ -75,22 +77,36 @@ while cap.isOpened():
         else:
             last_candidate = g
             gesture_streak = 1
+            if g != "stop":
+                stop_latched = False
 
-        if gesture_streak >= DEBOUNCE_FRAMES:
-            if g in ["stop", "palm", "five"]:
-                flight_mode = "FLYING"
-            elif g in ["ok", "peace", "fist"]:
-                flight_mode = "LANDED"
+        if gesture_streak >= DEBOUNCE_FRAMES and g == "like":
+            flight_mode = "FLYING"
+        elif gesture_streak >= DEBOUNCE_FRAMES and g == "stop" and not stop_latched:
+            flight_mode = "LANDED"
+            stop_latched = True
 
         if flight_mode == "FLYING":
-            raw_vy = -apply_deadzone(norm_x) * MAX_SPEED
-            raw_vz = apply_deadzone(norm_y) * 1.0
+            if g == "peace":
+                if gesture_streak >= DEBOUNCE_FRAMES:
+                    raw_vy = MAX_SPEED
+                    status_text = "BANK LEFT"
+            elif g == "ok":
+                if gesture_streak >= DEBOUNCE_FRAMES:
+                    raw_vy = -MAX_SPEED
+                    status_text = "BANK RIGHT"
+            elif g != "stop":
+                raw_vy = -apply_deadzone(norm_x) * MAX_SPEED
+            if g == "like" and gesture_streak >= DEBOUNCE_FRAMES:
+                raw_vz = VERTICAL_SPEED
             raw_vx = apply_deadzone(norm_z) * MAX_SPEED
 
         cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 2)
         cv2.circle(frame, (int(cx * w), int(cy * h)), 6, (0, 0, 255), -1)
     else:
         gesture_streak = 0
+        last_candidate = ""
+        stop_latched = False
         if time.time() - last_seen_time > FAILSAFE_TIMEOUT and flight_mode == "FLYING":
             status_text = "AUTO-HOVER (HAND LOST)"
             smooth_vx = smooth_vy = smooth_vz = 0.0
